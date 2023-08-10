@@ -23,6 +23,8 @@ elif [[ "$(grep -Ei 'fedora|redhat' /etc/*release)" ]];then
         echo "No ${REQUIRED_PKG}. Please run yum/dnf install ${REQUIRED_PKG}."
         exit 1
     fi
+else
+    echo "WARN: libguestfs-tools needs to be installed for this script to work correctly"
 fi
 
 # Init globals
@@ -33,7 +35,6 @@ LOCALLANG=en_us.UTF-8
 X11LAYOUT=us
 X11MODEL=pc105
 VIRTPKG=
-SSH_PASS_AUTH=no
 MEM=1024
 BALLOON=0
 CORES=1
@@ -49,6 +50,7 @@ SSH_PASS_AUTH=no
 SSHKEY=""
 VLAN=""
 DISK_SIZE=""
+SET_USER_PASS=no
 
 # Source input variables files
 if [[ ${envfile} ]];then
@@ -63,34 +65,50 @@ if [[ -z ${WORK_DIR} ]];then
     export WORK_DIR=/tmp
 fi
 
+if [[ ${SRC_URL} == '' ]];then
+      echo "Variable SRC_URL is not set.Exiting.."
+      exit 1
+fi
+
 # Helper variables and transformations
 SRC_IMG=${SRC_URL##*/}
 IMG_NAME="${SRC_IMG/.*/.qcow2}"
-echo ${IMG_NAME}
-read -p "Enter a VM Template Name [$TEMPL_NAME_DEFAULT]: " TEMPL_NAME
-TEMPL_NAME=${TEMPL_NAME:-$TEMPL_NAME_DEFAULT}
-read -p "Enter a VM ID for $TEMPL_NAME_DEFAULT [$VMID_DEFAULT]: " VMID
-VMID=${VMID:-$VMID_DEFAULT}
-read -p "Enter a Cloud-Init Username for $TEMPL_NAME_DEFAULT [$CLOUD_USER_DEFAULT]: " CLOUD_USER
-CLOUD_USER=${CLOUD_USER:-$CLOUD_USER_DEFAULT}
-GENPASS=$(date +%s | sha256sum | base64 | head -c 16 ; echo)
-CLOUD_PASSWORD_DEFAULT=$GENPASS
-read -p "Enter a Cloud-Init Password for $TEMPL_NAME_DEFAULT [$CLOUD_PASSWORD_DEFAULT]: " CLOUD_PASSWORD
-CLOUD_PASSWORD=${CLOUD_PASSWORD:-$CLOUD_PASSWORD_DEFAULT}
 
-# Last check for all needed input are inplace
-for i in '$SRC_URL' '$TEMPL_NAME_DEFAULT' '$VMID_DEFAULT' '$CLOUD_USER_DEFAULT';do
-    if [[ $(eval echo ${i}) == '' ]];then
-      echo "Variable ${i} is not set.Exiting"
+# Set proxmox template required settings
+if [[ ${HYPERVISOR} == true ]];then
+  read -p "Enter a VM Template Name [$TEMPL_NAME_DEFAULT]: " TEMPL_NAME    
+  TEMPL_NAME=${TEMPL_NAME:-$TEMPL_NAME_DEFAULT}
+  read -p "Enter a VM ID for $TEMPL_NAME_DEFAULT [$VMID_DEFAULT]: " VMID
+  VMID=${VMID:-$VMID_DEFAULT}
+  if [[ ${DISK_STOR} == '' ]];then
+    read -p "Enter a proxmox storage backend name: " DISK_STOR
+    if [[ ${DISK_STOR} == '' ]];then
+      echo "DISK_STOR needs to be set.Exiting"
       exit 1
     fi
-    if [[ ${HYPERVISOR} == true ]];then
-      if [[ ${DISK_STOR} == '' ]];then
-        echo "Variable DISK_STOR must be set when HYPERVISOR flag is true.Exiting.."
-        exit 1
-      fi
+  fi
+  read -p "Is storage backend ZFS based ? [y/N]" reply
+  if [[ "${reply}" =~ ^([yY][eE][sS]|[yY])$ ]];then
+    ZFS=true
+  fi
+fi
+
+# Check if user/password defined else create one and prompt user for acceptance.
+if [[ ${SET_USER_PASS} == 'yes' ]];then
+  if [[ ${CLOUD_USER} == '' ]];then
+    read -p "Enter image default user name: " CLOUD_USER
+    if [[ ${CLOUD_USER} == '' ]];then
+      echo 'You need to set cloud user also to set user password'
+      exit 1
     fi
-done
+  fi
+  if [[ ${CLOUD_PASSWORD} == '' ]];then
+    GENPASS=$(date +%s | sha256sum | base64 | head -c 16 ; echo)
+    CLOUD_PASSWORD_DEFAULT=$GENPASS
+    read -p "Enter default password for user [$CLOUD_PASSWORD_DEFAULT]: " CLOUD_PASSWORD
+    CLOUD_PASSWORD=${CLOUD_PASSWORD:-$CLOUD_PASSWORD_DEFAULT}
+  fi
+fi
 
 # Download image
 cd ${WORK_DIR}
@@ -141,6 +159,16 @@ fi
 echo "### Update SSH configuration to deny root login"
 virt-customize -a ${IMG_NAME} --run-command 'sed -i s/^#PermitRootLogin.*/PermitRootLogin\ no/ /etc/ssh/sshd_config'
 
+# Set image default user's password
+if [[ ${SET_USER_PASS} == 'yes' ]];then
+  virt-customize -a ${IMG_NAME} --password "${CLOUD_USER}":"${CLOUD_PASSWORD}"
+fi
+
+# Set SSH key if set
+if [[ -n "${SSHKEY+set}" ]];then
+  virt-customize -a ${IMG_NAME} --ssh-inject "${CLOUD_USER}":string:"${SSHKEY}"
+fi
+
 # Prepere image
 echo "### Sysprep image ###"
 virt-sysprep -a ${IMG_NAME}
@@ -156,13 +184,17 @@ if [[ ${HYPERVISOR} != 'true' ]];then
         rm -v ${SRC_IMG}
         rm -v /tmp/99_pve.cfg
     else
-        echo "Image not deleted"
+        echo "Cleanup failed,remove leftovers manually"
     fi
-    echo "Disk image can be found at ${WORK_DIR}/${IMG_NAME}"
-    exit 0
+    if [[ -f ${WORK_DIR}/${IMG_NAME} ]];then
+      echo "Disk image can be found at ${WORK_DIR}/${IMG_NAME}"
+      exit 0
+    else 
+      echo 'Created image save operation failed.'
+      exit 1
 fi
 
-# Create the VM and set it as template
+# Create the VM and set it as template when you are in the hypervisor
 qm create ${VMID} --name ${TEMPL_NAME} --memory ${MEM} --balloon ${BALLOON} --cores ${CORES} --bios ${BIOS} --machine ${MACHINE} --net0 virtio,bridge=${NET_BRIDGE}${VLAN:+,tag=$VLAN}
 qm set ${VMID} --agent enabled=${AGENT_ENABLE},fstrim_cloned_disks=${FSTRIM}
 qm set ${VMID} --ostype ${OS_TYPE}
@@ -177,8 +209,10 @@ else
 fi
 qm set ${VMID} --scsi1 ${DISK_STOR}:cloudinit
 qm set ${VMID} --rng0 source=/dev/urandom
-qm set ${VMID} --ciuser ${CLOUD_USER}
-qm set ${VMID} --cipassword ${CLOUD_PASSWORD}
+if [[ ${SET_USER_PASS} == 'yes' ]];then
+  qm set ${VMID} --ciuser ${CLOUD_USER}
+  qm set ${VMID} --cipassword ${CLOUD_PASSWORD}
+fi
 qm set ${VMID} --boot c --bootdisk virtio0
 qm set ${VMID} --tablet 0
 qm set ${VMID} --ipconfig0 ip=dhcp
