@@ -1,12 +1,7 @@
 # proxmox-vm-template
-Proxmox template creation script with configurable options
+VM template creation script with configurable options
 
-The intention of usage of crtmpl.sh is to be used with a input file which sets the basic variables.
-An example of the inputs needed is included in the ubuntu.env file included in repo for a fully template creation in a proxmox node.
-Typically variable \"HYPERVISOR\"  is set to false and will assume that you want to just create the virtual disk,  
-otherwise in a proxmox node you can set it to true to auto-create also the vm template too.
-
-| Variable | default | required | helper var |
+| Variable | Default | Required | Description|
 | -------- | ------- | -------- | ---------- |
 | SRC_VER | - | no | yes|
 | SRC_URL | - | yes | no|
@@ -46,7 +41,51 @@ otherwise in a proxmox node you can set it to true to auto-create also the vm te
 | VLAN | - | no | no |
 | DISK_SIZE | - | no | no |
 
+
+Usage:  
+
+The intention of usage of crtmpl.sh is to be used with a input file which sets the basic variables.
+When is executed in  a proxmox node you can create the vm template setting HDD_STOR and HYPERVISOR variables accordingly.
+
 Example execution:
 ```sh
  bash crtmpl.sh ubuntu.env
+```
+
+Example ubuntu disk only creation:
+```sh
+SRC_URL="https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+TEMPL_NAME_DEFAULT="ubuntu2204"
+VMID_DEFAULT="999"
+CLOUD_USER_DEFAULT="ubuntu"
+```
+
+Example ubuntu template on proxmox host:
+```sh
+SRC_URL="https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+TEMPL_NAME_DEFAULT="ubuntu2204"
+VMID_DEFAULT="1000"
+CLOUD_USER_DEFAULT="ubuntu"
+DISK_STOR="HDD"
+HYPERVISOR="true" 
+```
+
+Example ubuntu template on proxmox host with ZFS backend:
+```sh
+SRC_URL="https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+TEMPL_NAME_DEFAULT="ubuntu2204"
+VMID_DEFAULT="10001"
+CLOUD_USER_DEFAULT="ubuntu"
+DISK_STOR="SUPERFASTSTORAGE"
+ZFS="true" 
+```
+Example fedora template on proxmox host with ZFS storage backend:
+```sh
+SRC_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/38/Cloud/x86_64/images/Fedora-Cloud-Base-38-1.6.x86_64.qcow2"
+TEMPL_NAME_DEFAULT="fedora38"
+VMID_DEFAULT="2000"
+CLOUD_USER_DEFAULT="fedora"
+DISK_STOR="SUPERFASTSTORAGE"
+ZFS="true"
+HYPERVISOR="true"
 ```
