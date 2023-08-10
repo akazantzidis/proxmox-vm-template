@@ -65,7 +65,8 @@ fi
 
 # Helper variables and transformations
 SRC_IMG=${SRC_URL##*/}
-IMG_NAME="${SRC_IMG/.img/.qcow2}"
+IMG_NAME="${SRC_IMG/.*/.qcow2}"
+echo ${IMG_NAME}
 read -p "Enter a VM Template Name [$TEMPL_NAME_DEFAULT]: " TEMPL_NAME
 TEMPL_NAME=${TEMPL_NAME:-$TEMPL_NAME_DEFAULT}
 read -p "Enter a VM ID for $TEMPL_NAME_DEFAULT [$VMID_DEFAULT]: " VMID
@@ -78,13 +79,18 @@ read -p "Enter a Cloud-Init Password for $TEMPL_NAME_DEFAULT [$CLOUD_PASSWORD_DE
 CLOUD_PASSWORD=${CLOUD_PASSWORD:-$CLOUD_PASSWORD_DEFAULT}
 
 # Last check for all needed input are inplace
-for i in '$SRC_URL' '$TEMPL_NAME_DEFAULT' '$VMID_DEFAULT' '$CLOUD_USER_DEFAULT' '$DISK_STOR';do
+for i in '$SRC_URL' '$TEMPL_NAME_DEFAULT' '$VMID_DEFAULT' '$CLOUD_USER_DEFAULT';do
     if [[ $(eval echo ${i}) == '' ]];then
       echo "Variable ${i} is not set.Exiting"
       exit 1
     fi
+    if [[ ${HYPERVISOR} == true ]];then
+      if [[ ${DISK_STOR} == '' ]];then
+        echo "Variable DISK_STOR must be set when HYPERVISOR flag is true.Exiting.."
+        exit 1
+      fi
+    fi
 done
-exit 2
 
 # Download image
 cd ${WORK_DIR}
